@@ -27,16 +27,16 @@ EOF
 
 ## DESTINATION DETAILS
 DEST_DEVICE=/dev/sdd3
-DEST_PATH=/media/bhome
+DEST_PATH=/media/yolo
 DEST_FS_TYPE=ext4
 
 ## VERBOSITY
 	# ERR = 0 = RED
-	# WRN = 1 = YEL
-	# INF = 2 = RST (default)
+	# WRN = 1 = YEL (default)
+	# INF = 2 = RST
 	# DBG = 3 = BLU
-VERBOSITY=3
-QUIET=0 # Be quiet? Useful for crontabs
+VERBOSITY=1
+QUIET=1 # Be quiet? Useful for crontabs
 
 ################################################################################
 # DO NOT ADJUST BELOW THIS LINE!                                               #
@@ -223,6 +223,8 @@ function do_backup()
 	if [ "$QUIET" -eq 1 ]; then
 		# be quiet
 		RSYNC_OPTS="$RSYNC_OPTS -q"
+	else
+		RSYNC_OPTS="$RSYNC_OPTS --progress"
 	fi
 #	display DEBUG "$RSYNC $RSYNC_OPTS $RSYNC_EXCLUDES $RSYNC_EXT_OPTS"
 	$RSYNC $RSYNC_OPTS $RSYNC_EXCLUDES $RSYNC_EXT_OPTS
