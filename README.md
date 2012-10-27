@@ -6,9 +6,9 @@ It's backup. With swag.
 yolo-bear is a completely self contained backup script that uses only a small
 handful of binaries which are called by variable names (yes, on some systems you
 might be forced to change them, but that's
-1) rare
+1. rare
 and
-2) better than accidentally calling the wrong binary because some nincompoop has
+1. better than accidentally calling the wrong binary because some nincompoop has
 spoiled things in your $PATH variable.
 
 
