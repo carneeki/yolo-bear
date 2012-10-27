@@ -1,0 +1,238 @@
+#!/bin/bash
+################################################################################
+# gotYourBack - backup utility by Adam Carmichael <carneeki@carneeki.net>
+################################################################################
+set -f
+
+# USER CONFIG OPTIONS 
+
+## BACKUP DETAILS
+BACKUP_FULL_DAY="SUN"	# Day to do full backups. Other days will be incremental
+			# fixme so it actually does something
+BACKUP_NAME="backup"
+read -d '' BACKUP_EXCLUDE << "EOF"
+/dev
+/proc
+/sys/
+/tmp/
+/run/
+/mnt/
+/media/
+/lost+found
+/home/*/.gvfs
+/home/*/Downloads
+/home/*/.cache/chromium/*/Cache/*
+/home/*/.cache/google-chrome/*/Cache/*
+EOF
+
+## DESTINATION DETAILS
+DEST_DEVICE=/dev/sdd3
+DEST_PATH=/media/bhome
+DEST_FS_TYPE=ext4
+
+## VERBOSITY
+	# ERR = 0 = RED
+	# WRN = 1 = YEL
+	# INF = 2 = RST (default)
+	# DBG = 3 = BLU
+VERBOSITY=3
+QUIET=0 # Be quiet? Useful for crontabs
+
+################################################################################
+# DO NOT ADJUST BELOW THIS LINE!                                               #
+################################################################################
+set +f
+unset PATH	# suggestion from Mike Rubel / H. Milz:
+		  # avoid accidental use of $PATH
+
+START=($DATE +%s)
+
+# USE ONLY THESE COMMANDS, and ONLY BY THESE VARIABLES!
+CP=/bin/cp
+DATE=/bin/date
+ECHO=/bin/echo
+ID=/usr/bin/id
+GREP=/bin/grep
+MKDIR=/bin/mkdir
+MOUNT=/bin/mount
+MV=/bin/mv
+RM=/bin/rm
+RSYNC=/usr/bin/rsync
+TOUCH=/usr/bin/touch
+TR=/usr/bin/tr
+UNAME=/bin/uname
+WC=/usr/bin/wc
+
+# Metrics 
+START=$($DATE +%s)
+
+# Text colours
+# Common defines (Arch-dependent)
+case `$UNAME -s` in
+	Darwin)
+		txtrst='\033[0m'  # Color off
+		txtred='\033[0;31m' # Red
+		txtgrn='\033[0;32m' # Green
+		txtylw='\033[0;33m' # Yellow
+		txtblu='\033[0;34m' # Blue
+		;;
+	*)
+		txtrst='\e[0m'  # Color off
+		txtred='\e[0;31m' # Red
+		txtgrn='\e[0;32m' # Green
+		txtylw='\e[0;33m' # Yellow
+		txtblu='\e[0;34m' # Blue
+		;;
+esac
+
+function display()
+{
+	# ERR = 0 = RED
+	# WRN = 1 = YEL
+	# INF = 2 = RST
+	# DBG = 3 = BLU
+	case $1 in
+	ERROR)
+		$ECHO -e "${txtred}ERROR:${txtrst} $2"
+		;;
+	WARN)
+		if [ $VERBOSITY -ge 1 ]; then
+			$ECHO -e "${txtylw}WARNING:${txtrst} $2"
+		fi
+		;;
+	INFO)
+		if [ $VERBOSITY -ge 2 ]; then
+			$ECHO -e "${txtrst}INFO: $2"
+		fi
+		;;
+	DEBUG)
+		if [ "$VERBOSITY" -ge 3 ]; then
+			$ECHO -e "${txtblu}DEBUG:${txtrst} $2"
+		fi
+		;;
+esac
+}
+
+# other variables needed
+DAY=`$DATE +%a | $TR '[:lower:]' '[:upper:]'`
+
+# make sure running as root
+if (( `$ID -u` != 0 )); then
+{
+	display ERROR "Sorry, must be root.  Exiting..."
+	exit;
+}
+fi
+
+# Remount device as read/write
+function is_mounted()
+{
+	$MOUNT | $GREP $DEST_DEVICE | $GREP $DEST_PATH | $WC -l
+}
+
+function do_mount()
+{
+	local RWRO=$1
+
+	if [ $(is_mounted) -ge 1 ]; then
+		# mounted, proceed to remount
+		display DEBUG "Attempting to remount $DEST_DEVICE ($DEST_PATH) as $RWRO"
+		$MOUNT -t $DEST_FS_TYPE -o remount,$RWRO $DEST_DEVICE $DEST_PATH
+		if (( $? )); then
+			display ERROR "Could not remount device $DEST_DEVICE ($DEST_PATH) as $RWRO."
+			exit;
+		else
+			display DEBUG "Remount $DEST_DEVICE ($DEST_PATH) as $RWRO successful."
+		fi
+	else
+		# not mounted, just mount normally
+		display DEBUG "$DEST_PATH not mounted. Attempting to mount as $RWRO."
+		if [ -e $DEST_PATH ]; then
+			# path exists
+			display DEBUG "Mount point $DEST_PATH exists."
+		else
+			# need to create mount point
+			display DEBUG "$DEST_PATH does not exist. Create directory."
+			$MKDIR -p $DEST_PATH
+		fi
+		$MOUNT -t $DEST_FS_TYPE -o $RWRO $DEST_DEVICE $DEST_PATH
+		if (( $? )); then
+			display ERROR "Could not mount device $DEST_DEVICE ($DEST_PATH) as $RWRO."
+			exit;
+		else
+			display DEBUG "Mount successful."
+		fi
+	fi
+}
+
+function rotate_backups()
+{
+	if [ -d $DEST_PATH/$BACKUP_NAME.7 ]; then
+		display DEBUG "Deleting last week's backup."
+		$RM -rf $DEST_PATH/$BACKUP_NAME.7
+	fi
+	if [ -d $DEST_PATH/$BACKUP_NAME.6 ]; then
+		display DEBUG "Rotating from 6 to 7"
+		$MV $DEST_PATH/$BACKUP_NAME.6 $DEST_PATH/$BACKUP_NAME.7
+	fi
+	if [ -d $DEST_PATH/$BACKUP_NAME.5 ]; then
+		display DEBUG "Rotating from 5 to 6"
+		$MV $DEST_PATH/$BACKUP_NAME.5 $DEST_PATH/$BACKUP_NAME.6
+	fi
+	if [ -d $DEST_PATH/$BACKUP_NAME.4 ]; then
+		display DEBUG "Rotating from 4 to 5"
+		$MV $DEST_PATH/$BACKUP_NAME.4 $DEST_PATH/$BACKUP_NAME.5
+	fi
+	if [ -d $DEST_PATH/$BACKUP_NAME.3 ]; then
+		display DEBUG "Rotating from 3 to 4"
+		$MV $DEST_PATH/$BACKUP_NAME.3 $DEST_PATH/$BACKUP_NAME.4
+	fi
+	if [ -d $DEST_PATH/$BACKUP_NAME.2 ]; then
+		display DEBUG "Rotating from 2 to 3"
+		$MV $DEST_PATH/$BACKUP_NAME.2 $DEST_PATH/$BACKUP_NAME.3
+	fi
+	if [ -d $DEST_PATH/$BACKUP_NAME.1 ]; then
+		display DEBUG "Rotating from 1 to 2"
+		$MV $DEST_PATH/$BACKUP_NAME.1 $DEST_PATH/$BACKUP_NAME.2
+	fi
+	if [ -d $DEST_PATH/$BACKUP_NAME.0 ]; then
+		display DEBUG "Rotating from 0 to 1"
+		$MV $DEST_PATH/$BACKUP_NAME.0 $DEST_PATH/$BACKUP_NAME.1
+	fi
+	if [ -d $DEST_PATH/$BACKUP_NAME.tmp ]; then
+		display DEBUG "Rotating from tmp to 0"
+		$MV $DEST_PATH/$BACKUP_NAME.tmp $DEST_PATH/$BACKUP_NAME.0
+	fi
+}
+
+function do_backup()
+{
+	local RSYNC_OPTS="-aAXv"
+	local RSYNC_EXT_OPTS="--link-dest=$DEST_PATH/$BACKUP_NAME.0 /* $DEST_PATH/$BACKUP_NAME.tmp"
+	for dir in $BACKUP_EXCLUDE
+	do
+		local RSYNC_EXCLUDES="$RSYNC_EXCLUDES --exclude=$dir"
+	done
+
+	display DEBUG "Starting backup"
+	if [ ! -d "$DEST_PATH/$BACKUP_NAME.0" ]; then
+		# make the initial directory to seed the thing!
+		display DEBUG "Creating initial backup point, $DEST_PATH/$BACKUP_NAME.0"
+		$MKDIR -p $DEST_PATH/$BACKUP_NAME.0
+	fi
+	if [ "$QUIET" -eq 1 ]; then
+		# be quiet
+		RSYNC_OPTS="$RSYNC_OPTS -q"
+	fi
+#	display DEBUG "$RSYNC $RSYNC_OPTS $RSYNC_EXCLUDES $RSYNC_EXT_OPTS"
+	$RSYNC $RSYNC_OPTS $RSYNC_EXCLUDES $RSYNC_EXT_OPTS
+	display DEBUG "Backup complete."
+}
+
+do_mount rw
+do_backup
+rotate_backups
+do_mount ro
+
+FINISH=$($DATE +%s)
+display INFO "Time taken: $(( ($FINISH-$START) / 60 )) minutes, $(( ($FINISH-$START) % 60 )) seconds"
