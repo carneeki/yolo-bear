@@ -20,14 +20,17 @@ read -d '' BACKUP_EXCLUDE << "EOF"
 /media/
 /lost+found
 /home/*/.gvfs
+/home/*/.local/share/Trash/
 /home/*/Downloads
+/home/*/.ccache/*
 /home/*/.cache/chromium/*/Cache/*
 /home/*/.cache/google-chrome/*/Cache/*
+/home/*/android/system/*
+/usr/src/*
 EOF
 
 ## DESTINATION DETAILS
-DEST_DEVICE=/dev/sdd3
-DEST_PATH=/media/yolo
+DEST_PATH=/media/backup
 DEST_FS_TYPE=ext4
 
 ## VERBOSITY
@@ -35,8 +38,8 @@ DEST_FS_TYPE=ext4
 	# WRN = 1 = YEL (default)
 	# INF = 2 = RST
 	# DBG = 3 = BLU
-VERBOSITY=1
-QUIET=1 # Be quiet? Useful for crontabs
+VERBOSITY=3
+QUIET=0 # Be quiet? Useful for crontabs
 
 ################################################################################
 # DO NOT ADJUST BELOW THIS LINE!                                               #
@@ -127,7 +130,7 @@ fi
 # Remount device as read/write
 function is_mounted()
 {
-	$MOUNT | $GREP $DEST_DEVICE | $GREP $DEST_PATH | $WC -l
+	$MOUNT | $GREP $DEST_PATH | $WC -l
 }
 
 function do_mount()
@@ -136,13 +139,13 @@ function do_mount()
 
 	if [ $(is_mounted) -ge 1 ]; then
 		# mounted, proceed to remount
-		display DEBUG "Attempting to remount $DEST_DEVICE ($DEST_PATH) as $RWRO"
-		$MOUNT -t $DEST_FS_TYPE -o remount,$RWRO $DEST_DEVICE $DEST_PATH
+		display DEBUG "Attempting to remount $DEST_PATH as $RWRO"
+		$MOUNT -o remount,$RWRO $DEST_PATH
 		if (( $? )); then
-			display ERROR "Could not remount device $DEST_DEVICE ($DEST_PATH) as $RWRO."
+			display ERROR "Could not remount $DEST_PATH as $RWRO."
 			exit;
 		else
-			display DEBUG "Remount $DEST_DEVICE ($DEST_PATH) as $RWRO successful."
+			display DEBUG "Remount $DEST_PATH as $RWRO successful."
 		fi
 	else
 		# not mounted, just mount normally
@@ -155,9 +158,9 @@ function do_mount()
 			display DEBUG "$DEST_PATH does not exist. Create directory."
 			$MKDIR -p $DEST_PATH
 		fi
-		$MOUNT -t $DEST_FS_TYPE -o $RWRO $DEST_DEVICE $DEST_PATH
+		$MOUNT -o $RWRO $DEST_PATH
 		if (( $? )); then
-			display ERROR "Could not mount device $DEST_DEVICE ($DEST_PATH) as $RWRO."
+			display ERROR "Could not mount $DEST_PATH as $RWRO."
 			exit;
 		else
 			display DEBUG "Mount successful."
@@ -207,7 +210,7 @@ function rotate_backups()
 
 function do_backup()
 {
-	local RSYNC_OPTS="-aAXv"
+	local RSYNC_OPTS="-aAXv --delete"
 	local RSYNC_EXT_OPTS="--link-dest=$DEST_PATH/$BACKUP_NAME.0 /* $DEST_PATH/$BACKUP_NAME.tmp"
 	for dir in $BACKUP_EXCLUDE
 	do
